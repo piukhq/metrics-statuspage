@@ -1,6 +1,10 @@
 FROM ghcr.io/binkhq/python:3.9 as build
 
-WORKDIR /src
-ADD main.py Pipfile Pipfile.lock ./
+WORKDIR /app
+ADD main.py .
+ADD Pipfile .
+ADD Pipfile.lock .
 
-ENTRYPOINT ["linkerd-await", "--"]
+RUN pipenv install --system --deploy --ignore-pipfile
+
+CMD ["python", "main.py"]
