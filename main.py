@@ -1,4 +1,5 @@
 import argparse
+import os
 import random
 import time
 
@@ -11,7 +12,7 @@ page_id = "wx6qpqvzjkw1"
 def rabbit_queue():
     metric_id = "lm78zp8xzyys"
     metric_name = "RabbitMQ Queue data"
-    prometheus = "http://localhost:9090/api/v1/query"
+    prometheus = os.environ.get("PROMTHEUS_URL", "http://localhost:9090/api/v1/query")
     headers = {"Content-Type": "application/json"}
     params = {
         "query": 'sum(rate(rabbitmq_queue_messages_ack_total{kubernetes_cluster="prod0"}[2m])) * 120'
