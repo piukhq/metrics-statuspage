@@ -7,4 +7,4 @@ ADD Pipfile.lock .
 
 RUN pipenv install --system --deploy --ignore-pipfile
 
-CMD ["python", "main.py"]
+ENTRYPOINT ["python3", "main.py"]
