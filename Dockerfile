@@ -7,4 +7,4 @@ ADD Pipfile.lock .
 
 RUN pipenv install --system --deploy --ignore-pipfile
 
-ENTRYPOINT ["linkerd-await", "--"]
+ENTRYPOINT ["linkerd-await", "--shutdown", "--"]
