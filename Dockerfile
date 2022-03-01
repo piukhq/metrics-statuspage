@@ -1,4 +1,4 @@
-FROM ghcr.io/binkhq/python:3.9 as build
+FROM ghcr.io/binkhq/python:3.9
 
 WORKDIR /app
 ADD main.py .
@@ -7,4 +7,4 @@ ADD Pipfile.lock .
 
 RUN pipenv install --system --deploy --ignore-pipfile
 
-ENTRYPOINT ["python3", "main.py"]
+ENTRYPOINT ["linkerd-await", "--"]
