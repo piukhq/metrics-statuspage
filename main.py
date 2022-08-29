@@ -1,55 +1,101 @@
 import argparse
-import os
+import logging
 import random
 import time
 
 import requests
+from pythonjsonlogger import jsonlogger
 
-api_key = "432537fe-12a0-4f9c-aa23-7964fb2053db"
-page_id = "wx6qpqvzjkw1"
+from settings import settings
+
+logger = logging.getLogger()
+logHandler = logging.StreamHandler()
+logFmt = jsonlogger.JsonFormatter(timestamp=True)
+logHandler.setFormatter(logFmt)
+logger.addHandler(logHandler)
 
 
-def rabbit_queue():
-    metric_id = "lm78zp8xzyys"
-    metric_name = "RabbitMQ Queue data"
-    prometheus = os.environ.get("PROMETHEUS_URL", "http://localhost:9090/api/v1/query")
+def rabbit_metrics() -> None:
+    prom_ips = settings.prom_ips.split(",")
     headers = {"Content-Type": "application/json"}
-    params = {
-        "query": 'sum(rate(rabbitmq_queue_messages_ack_total{kubernetes_cluster="prod0"}[2m])) * 120'
+    params = {"query": "sum(rate(rabbitmq_queue_messages_ack_total[2m])) * 120"}
+    servers_available = len(prom_ips)
+    for ip in prom_ips:
+        logging_extras = {"prometheus_ip": ip}
+        try:
+            logging.warning("Attempting to get RabbitMQ Metrics", extra=logging_extras)
+            r = requests.get(f"http://{ip}:9090/api/v1/query", params=params, headers=headers).json()
+            break
+        except Exception:
+            servers_available -= 1
+            if servers_available == 0:
+                logging.warning("RabbitMQ Metric collection attempts exhausted, request failed", extra=logging_extras)
+                return None
+            else:
+                logging.warning("RabbitMQ Metric collection failed, attempting next server", extra=logging_extras)
+                continue
+    data = {
+        "name": "RabbitMQ Queue data",
+        "id": "lm78zp8xzyys",
+        "timestamp": int(float(r["data"]["result"][0]["value"][0])),
+        "value": int(float(r["data"]["result"][0]["value"][1])),
     }
-
-    response = requests.get(prometheus, params, headers=headers)
-    data = response.json()
-    value = data["data"]["result"][0]["value"][1]
-    ts = data["data"]["result"][0]["value"][0]
-
-    post_metrics(value, ts, metric_id, page_id, metric_name)
+    logging.warning("Gathered RabbitMQ metrics successfully", extra={"data": data})
+    post_to_stauspage(timestamp=data["timestamp"], value=data["value"], id=data["id"], name=data["name"])
 
 
-def generate_rps():
-    hermes_rpm = random.randint(98, 132)
-    hermes_rpm_metric = "4qfyp4zp6fhp"
-    hermes_rpm_name = "Hermes RPM"
-    cluster_rps = random.randint(212, 282)
-    cluster_rps_metric = "ylx0y4wxm07c"
-    cluster_rps_name = "Cluster RPS"
-    ts = int(time.time())
-    post_metrics(hermes_rpm, ts, hermes_rpm_metric, page_id, hermes_rpm_name)
-    post_metrics(cluster_rps, ts, cluster_rps_metric, page_id, cluster_rps_name)
+def fake_metrics() -> None:
+    data = {
+        "hermes": {
+            "name": "Hermes RPM",
+            "id": "4qfyp4zp6fhp",
+            "timestamp": int(time.time()),
+            "value": random.randint(98, 132),
+        },
+        "cluster": {
+            "name": "Cluster RPS",
+            "id": "ylx0y4wxm07c",
+            "timestamp": int(time.time()),
+            "value": random.randint(212, 282),
+        },
+    }
+    logging.warning("Generated fake data successfully", extra={"data": data})
+    post_to_stauspage(
+        timestamp=data["hermes"]["timestamp"],
+        value=data["hermes"]["value"],
+        id=data["hermes"]["id"],
+        name=data["hermes"]["name"],
+    )
+    post_to_stauspage(
+        timestamp=data["cluster"]["timestamp"],
+        value=data["cluster"]["value"],
+        id=data["cluster"]["id"],
+        name=data["cluster"]["name"],
+    )
 
 
-# Used by functions to send data to Statuspage
-def post_metrics(metric_value, ts, metric_id, page_id, metric_name):
-    url = f"https://api.statuspage.io/v1/pages/{page_id}/metrics/{metric_id}/data"
-    metric_name = metric_name
-    data = {"data": {"timestamp": ts, "value": metric_value}}
+def post_to_stauspage(timestamp: int, value: int, id: str, name: str) -> None:
+    url = f"https://api.statuspage.io/v1/pages/{settings.sp_page_id}/metrics/{id}/data"
+    data = {"data": {"timestamp": timestamp, "value": value}}
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "OAuth " + api_key,
+        "Authorization": "OAuth " + settings.sp_api_key,
     }
 
-    response = requests.post(url, headers=headers, json=data)
-    print(metric_name, response.text)
+    for i in range(settings.retry_count):
+        attempt = i + 1
+        log_extras = {"retry_count": attempt, "retry_max": settings.retry_count, "metric_name": name}
+        try:
+            logging.warning("Sending Metric to Statuspage", extra=log_extras)
+            requests.post(url, headers=headers, json=data).raise_for_status()
+            break
+        except Exception:
+            if attempt < settings.retry_count:
+                logging.warning("Retrying Sending Metric to Statuspage", extra=log_extras)
+                continue
+            else:
+                logging.warning("Giving up Sending Metric to Statuspage")
+                break
 
 
 def main():
@@ -57,19 +103,21 @@ def main():
     arg.add_argument(
         "--rabbit",
         action="store_true",
-        help="rabbitmq queue numbers data grab and push",
+        help="Fetch total number of ack'd messages in RabbitMQ",
     )
     arg.add_argument(
         "--generate",
         action="store_true",
-        help="generate the data for hermes RPM and cluster RPS amd push",
+        help="Generate fake data for Hermes RPM and Cluster RPS",
     )
     args = arg.parse_args()
 
     if args.rabbit:
-        rabbit_queue()
+        rabbit_metrics()
     elif args.generate:
-        generate_rps()
+        fake_metrics()
+    else:
+        print("Run '--help' for more info")
 
 
 if __name__ == "__main__":

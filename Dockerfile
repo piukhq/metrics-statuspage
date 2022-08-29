@@ -1,9 +1,7 @@
-FROM ghcr.io/binkhq/python:3.9
+FROM ghcr.io/binkhq/python:3.10
 
 WORKDIR /app
-ADD main.py .
-ADD Pipfile .
-ADD Pipfile.lock .
+COPY main.py settings.py Pipfile Pipfile.lock /app/
 
 RUN pipenv install --system --deploy --ignore-pipfile
 
